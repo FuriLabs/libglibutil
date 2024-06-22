@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016-2021 Jolla Ltd.
- * Copyright (C) 2016-2021 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2023-2024 Slava Monich <slava@monich.com>
+ * Copyright (C) 2016-2022 Jolla Ltd.
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -44,10 +44,39 @@ gutil_disconnect_handlers(
     int count);
 
 void*
+gutil_object_ref(
+    void* object); /* Since 1.0.71 */
+
+void
+gutil_object_unref(
+    void* object); /* Since 1.0.71 */
+
+gboolean
+gutil_source_remove(
+    guint id); /* Since 1.0.78 */
+
+gboolean
+gutil_source_clear(
+    guint* id); /* Since 1.0.78 */
+
+void*
 gutil_hex2bin(
     const char* str,
     gssize len,
     void* data);
+
+char*
+gutil_bin2hex(
+    const void* data,
+    gsize len,
+    gboolean upper_case) /* Since 1.0.71 */
+    G_GNUC_WARN_UNUSED_RESULT;
+
+char*
+gutil_data2hex(
+    const GUtilData* data,
+    gboolean upper_case) /* Since 1.0.71 */
+    G_GNUC_WARN_UNUSED_RESULT;
 
 GBytes*
 gutil_hex2bytes(
@@ -76,6 +105,18 @@ gutil_parse_uint(
     unsigned int* value); /* Since 1.0.53 */
 
 gboolean
+gutil_parse_int64(
+    const char* str,
+    int base,
+    gint64* value); /* Since 1.0.56 */
+
+gboolean
+gutil_parse_uint64(
+    const char* str,
+    int base,
+    guint64* value); /* Since 1.0.56 */
+
+gboolean
 gutil_data_equal(
     const GUtilData* data1,
     const GUtilData* data2); /* Since 1.0.31 */
@@ -100,6 +141,22 @@ gutil_data_from_bytes(
     GUtilData* data,
     GBytes* bytes); /* Since 1.0.31 */
 
+GUtilData*
+gutil_data_new(
+    const void* bytes,
+    guint len) /* Since 1.0.72 */
+    G_GNUC_WARN_UNUSED_RESULT;
+
+GUtilData*
+gutil_data_copy(
+    const GUtilData* data) /* Since 1.0.72 */
+    G_GNUC_WARN_UNUSED_RESULT;
+
+GVariant*
+gutil_data_copy_as_variant(
+    const GUtilData* data) /* Since 1.0.74 */
+    G_GNUC_WARN_UNUSED_RESULT;
+
 GBytes*
 gutil_bytes_concat(
     GBytes* bytes,
@@ -123,9 +180,25 @@ gutil_bytes_equal_data(
     GBytes* bytes,
     const GUtilData* data); /* Since 1.0.41 */
 
+gboolean
+gutil_bytes_has_prefix(
+    GBytes* bytes,
+    const void* data,
+    gsize size); /* Since 1.0.63 */
+
+gboolean
+gutil_bytes_has_suffix(
+    GBytes* bytes,
+    const void* data,
+    gsize size); /* Since 1.0.63 */
+
 gsize
 gutil_ptrv_length(
     const void* ptrv); /* Since 1.0.50 */
+
+gboolean
+gutil_ptrv_is_empty(
+    const void* ptrv); /* Since 1.0.71 */
 
 void
 gutil_ptrv_free(
@@ -135,6 +208,10 @@ void*
 gutil_memdup(
     const void* ptr,
     gsize size); /* Since 1.0.52 */
+
+gsize
+gutil_strlen0(
+    const char* str); /* Since 1.0.62 */
 
 gsize
 gutil_range_init_with_bytes(

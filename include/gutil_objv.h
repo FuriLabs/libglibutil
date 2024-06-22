@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2016-2022 Jolla Ltd.
- * Copyright (C) 2016-2022 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2023 Slava Monich <slava@monich.com>
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -30,37 +29,105 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TEST_COMMON_H
-#define TEST_COMMON_H
+#ifndef GUTIL_OBJV_H
+#define GUTIL_OBJV_H
 
-#include <gutil_types.h>
+#include "gutil_types.h"
 
 #include <glib-object.h>
 
-#define TEST_FLAG_DEBUG (0x01)
+/*
+ * Operations on NULL-terminated array of references to GObjects.
+ *
+ * Since 1.0.70
+ */
 
-typedef struct test_opt {
-    int flags;
-} TestOpt;
+G_BEGIN_DECLS
 
-GType test_object_get_type(void);
-#define TEST_OBJECT_TYPE (test_object_get_type())
+GObject**
+gutil_objv_new(
+    GObject* obj,
+    ...) /* Since 1.0.72 */
+    G_GNUC_WARN_UNUSED_RESULT
+    G_GNUC_NULL_TERMINATED;
 
-extern gint test_object_count;
-
-/* Should be invoked after g_test_init */
 void
-test_init(
-    TestOpt* opt,
-    int argc,
-    char* argv[]);
+gutil_objv_free(
+    GObject** objv);
 
-/* Macros */
+GObject**
+gutil_objv_copy(
+    GObject* const* objv)
+    G_GNUC_WARN_UNUSED_RESULT;
 
-#define TEST_INIT_DATA(a,b) ((a).bytes = (void*)(b), (a).size = sizeof(b))
-#define TEST_ARRAY_AND_SIZE(a) (a), sizeof(a)
+GObject**
+gutil_objv_add(
+    GObject** objv,
+    GObject* obj)
+    G_GNUC_WARN_UNUSED_RESULT;
 
-#endif /* TEST_COMMON_H */
+GObject**
+gutil_objv_insert(
+    GObject** objv,
+    GObject* obj,
+    gsize pos) /* Since 1.0.71 */
+    G_GNUC_WARN_UNUSED_RESULT;
+
+GObject**
+gutil_objv_append(
+    GObject** objv,
+    GObject* const* objs) /* Since 1.0.71 */
+    G_GNUC_WARN_UNUSED_RESULT;
+
+GObject**
+gutil_objv_remove(
+    GObject** objv,
+    GObject* obj,
+    gboolean all)
+    G_GNUC_WARN_UNUSED_RESULT;
+
+GObject**
+gutil_objv_remove_at(
+    GObject** objv,
+    gsize pos)
+    G_GNUC_WARN_UNUSED_RESULT;
+
+GObject*
+gutil_objv_at(
+    GObject* const* objv,
+    gsize pos);
+
+gboolean
+gutil_objv_equal(
+    GObject* const* objv1,
+    GObject* const* objv2);
+
+GObject*
+gutil_objv_first(
+    GObject* const* objv);
+
+GObject*
+gutil_objv_last(
+    GObject* const* objv);
+
+gssize
+gutil_objv_find(
+    GObject* const* objv,
+    GObject* obj);
+
+gssize
+gutil_objv_find_last(
+    GObject* const* objv,
+    GObject* obj);
+
+gboolean
+gutil_objv_contains(
+    GObject* const* objv,
+    GObject* obj);
+
+G_END_DECLS
+
+#endif /* GUTIL_OBJV_H */
 
 /*
  * Local Variables:

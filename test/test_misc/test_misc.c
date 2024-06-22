@@ -1,6 +1,6 @@
 /*
- * Copyright (C) 2016-2021 Jolla Ltd.
- * Copyright (C) 2016-2021 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2023-2024 Slava Monich <slava@monich.com>
+ * Copyright (C) 2016-2022 Jolla Ltd.
  *
  * You may use this file under the terms of BSD license as follows:
  *
@@ -35,8 +35,21 @@
 #include "gutil_misc.h"
 #include "gutil_idlepool.h"
 #include "gutil_log.h"
+#include "gutil_version.h"
 
 static TestOpt test_opt;
+
+/*==========================================================================*
+ * version
+ *==========================================================================*/
+
+static
+void
+test_version(
+    void)
+{
+    g_assert_cmpuint(gutil_version(), == ,GUTIL_VERSION);
+}
 
 /*==========================================================================*
  * disconnect
@@ -78,6 +91,66 @@ test_disconnect(
     g_assert(!id[1]);
 
     g_object_unref(obj);
+}
+
+/*==========================================================================*
+ * ref
+ *==========================================================================*/
+
+static
+void
+test_ref(
+    void)
+{
+    GObject* obj = g_object_new(TEST_OBJECT_TYPE, NULL);
+
+    g_assert(!gutil_object_ref(NULL));
+    g_assert(gutil_object_ref(obj) == obj);
+    g_object_unref(obj);
+    g_object_unref(obj);
+}
+
+/*==========================================================================*
+ * unref
+ *==========================================================================*/
+
+static
+void
+test_unref(
+    void)
+{
+    gutil_object_unref(NULL);
+    gutil_object_unref(g_object_new(TEST_OBJECT_TYPE, NULL));
+}
+
+/*==========================================================================*
+ * source
+ *==========================================================================*/
+
+static
+gboolean
+test_source_cb(
+    gpointer data)
+{
+    g_assert_not_reached();
+    return G_SOURCE_REMOVE;
+}
+
+static
+void
+test_source(
+    void)
+{
+    guint id = 0;
+
+    g_assert(!gutil_source_clear(NULL));
+    g_assert(!gutil_source_clear(&id));
+    id = g_idle_add(test_source_cb, NULL);
+    g_assert(gutil_source_clear(&id));
+    g_assert_cmpuint(id, == ,0);
+
+    g_assert(!gutil_source_remove(0));
+    g_assert(gutil_source_remove(g_idle_add(test_source_cb, NULL)));
 }
 
 /*==========================================================================*
@@ -127,6 +200,46 @@ test_hex2bin(
 }
 
 /*==========================================================================*
+ * bin2hex
+ *==========================================================================*/
+
+static
+void
+test_bin2hex(
+    void)
+{
+    static const guchar bin[] = { 0x89, 0xab, 0xcd, 0xef };
+    static const GUtilData data = { TEST_ARRAY_AND_SIZE(bin) };
+    char* str;
+
+    /* gutil_data2hex return NULL if data is NULL */
+    g_assert(!gutil_data2hex(NULL, FALSE));
+
+    /* Data isn't touched if len is zero */
+    str = gutil_bin2hex(NULL, 0, FALSE);
+    g_assert_cmpstr(str, == ,"");
+    g_free(str);
+
+    /* Lower case */
+    str = gutil_bin2hex(bin, sizeof(bin), FALSE);
+    g_assert_cmpstr(str, == ,"89abcdef");
+    g_free(str);
+
+    str = gutil_data2hex(&data, FALSE);
+    g_assert_cmpstr(str, == ,"89abcdef");
+    g_free(str);
+
+    /* Upper case */
+    str = gutil_bin2hex(bin, sizeof(bin), TRUE);
+    g_assert_cmpstr(str, == ,"89ABCDEF");
+    g_free(str);
+
+    str = gutil_data2hex(&data, TRUE);
+    g_assert_cmpstr(str, == ,"89ABCDEF");
+    g_free(str);
+}
+
+/*==========================================================================*
  * hexdump
  *==========================================================================*/
 
@@ -173,6 +286,8 @@ test_parse_int(
     g_assert(!gutil_parse_int("", 0, NULL));
     g_assert(!gutil_parse_int("garbage", 0, NULL));
     g_assert(!gutil_parse_int("0 trailing garbage", 0, NULL));
+    g_assert(!gutil_parse_int("0", -1, NULL));
+    g_assert(!gutil_parse_int("0", 1, NULL));
     g_assert(gutil_parse_int("0", 0, NULL));
     g_assert(gutil_parse_int("0", 0, &value));
     g_assert_cmpint(value, == ,0);
@@ -207,16 +322,22 @@ test_parse_uint(
     g_assert(!gutil_parse_uint("", 0, NULL));
     g_assert(!gutil_parse_uint("garbage", 0, NULL));
     g_assert(!gutil_parse_uint("0 trailing garbage", 0, NULL));
+    g_assert(!gutil_parse_uint("0", -1, NULL));
+    g_assert(!gutil_parse_uint("0", 1, NULL));
     g_assert(gutil_parse_uint("0", 0, NULL));
     g_assert(gutil_parse_uint("0", 0, &value));
     g_assert_cmpuint(value, == ,0);
     g_assert(gutil_parse_uint("42", 0, &value));
     g_assert_cmpuint(value, == ,42);
     g_assert(!gutil_parse_uint("0x10000000000000000", 0, &value));
+#if defined __SIZEOF_INT__ && __SIZEOF_INT__ == 4
+    g_assert(!gutil_parse_uint("0x100000000", 0, &value));
+#endif
     g_assert(!gutil_parse_uint("-2147483649", 0, &value));
     g_assert(!gutil_parse_uint("-1", 0, &value));
+    g_assert(!gutil_parse_uint(" -1 ", 0, &value));
     g_assert(gutil_parse_uint("4294967295", 0, &value));
-    g_assert_cmpuint(value, == ,4294967295);
+    g_assert_cmpuint(value, == ,4294967295U);
     g_assert(gutil_parse_uint(" 0x7fffffff ", 0, &value));
     g_assert_cmpuint(value, == ,0x7fffffff);
     g_assert(gutil_parse_uint(" 7fffffff ", 16, &value));
@@ -225,6 +346,95 @@ test_parse_uint(
     g_assert_cmpuint(value, == ,0x7ffffffe);
     g_assert(gutil_parse_uint("0xffffffff", 0, &value));
     g_assert_cmpuint(value, == ,0xffffffff);
+}
+
+/*==========================================================================*
+ * parse_int64
+ *==========================================================================*/
+
+static
+void
+test_parse_int64(
+    void)
+{
+    gint64 value;
+
+    g_assert(!gutil_parse_int64(NULL, 0, NULL));
+    g_assert(!gutil_parse_int64("", 0, NULL));
+    g_assert(!gutil_parse_int64("garbage", 0, NULL));
+    g_assert(!gutil_parse_int64("0 trailing garbage", 0, NULL));
+    g_assert(!gutil_parse_int64("0", -1, NULL));
+    g_assert(!gutil_parse_int64("0", 1, NULL));
+    g_assert(gutil_parse_int64("0", 0, NULL));
+    g_assert(gutil_parse_int64("0", 0, &value));
+    g_assert_cmpint(value, == ,0);
+    g_assert(gutil_parse_int64("-1", 0, &value));
+    g_assert_cmpint(value, == ,-1);
+    g_assert(gutil_parse_int64("42", 0, &value));
+    g_assert_cmpint(value, == ,42);
+    g_assert(gutil_parse_int64("-2147483649", 0, &value));
+    g_assert_cmpint(value, == ,G_GINT64_CONSTANT(-2147483649));
+    g_assert(gutil_parse_int64("4294967295", 0, &value));
+    g_assert_cmpint(value, == ,G_GINT64_CONSTANT(4294967295));
+    g_assert(gutil_parse_int64(" 0x7fffffff ", 0, &value));
+    g_assert_cmpint(value, == ,0x7fffffff);
+    g_assert(gutil_parse_int64(" 7fffffff ", 16, &value));
+    g_assert_cmpint(value, == ,0x7fffffff);
+    g_assert(gutil_parse_int64("7ffffffe ", 16, &value));
+    g_assert_cmpint(value, == ,0x7ffffffe);
+    g_assert(gutil_parse_int64("0xffffffff", 0, &value));
+    g_assert_cmpint(value, == ,0xffffffff);
+    g_assert(gutil_parse_int64("-9223372036854775808", 0, &value));
+    g_assert_cmpint(value, == ,0x8000000000000000);
+    g_assert(gutil_parse_int64("9223372036854775807", 0, &value));
+    g_assert_cmpint(value, == ,0x7fffffffffffffff);
+#ifndef _WIN32
+    g_assert(!gutil_parse_int64("0x10000000000000000", 0, &value));
+    g_assert(!gutil_parse_int64("-9223372036854775809", 0, &value));
+    g_assert(!gutil_parse_int64("9223372036854775808", 0, &value));
+#endif
+}
+
+/*==========================================================================*
+ * parse_uint64
+ *==========================================================================*/
+
+static
+void
+test_parse_uint64(
+    void)
+{
+    guint64 value;
+
+    g_assert(!gutil_parse_uint64(NULL, 0, NULL));
+    g_assert(!gutil_parse_uint64("", 0, NULL));
+    g_assert(!gutil_parse_uint64("garbage", 0, NULL));
+    g_assert(!gutil_parse_uint64("0 trailing garbage", 0, NULL));
+    g_assert(!gutil_parse_uint64("0", -1, NULL));
+    g_assert(!gutil_parse_uint64("0", 1, NULL));
+    g_assert(gutil_parse_uint64("0", 0, NULL));
+    g_assert(gutil_parse_uint64("0", 0, &value));
+    g_assert_cmpuint(value, == ,0);
+    g_assert(gutil_parse_uint64("42", 0, &value));
+    g_assert_cmpuint(value, == ,42);
+    g_assert(!gutil_parse_uint64("-2147483649", 0, &value));
+    g_assert(!gutil_parse_uint64("-1", 0, &value));
+    g_assert(!gutil_parse_uint64(" -1 ", 0, &value));
+    g_assert(gutil_parse_uint64("4294967295", 0, &value));
+    g_assert_cmpuint(value, == ,4294967295U);
+    g_assert(!gutil_parse_uint64(" 0x7fffffff ffffffff ", 0, &value));
+    g_assert(gutil_parse_uint64(" 0x7fffffffffffffff ", 0, &value));
+    g_assert_cmpuint(value, == ,0x7fffffffffffffff);
+    g_assert(!gutil_parse_uint64(" 7fffffff ffffffff", 16, &value));
+    g_assert(gutil_parse_uint64(" 7fffffffffffffff ", 16, &value));
+    g_assert_cmpuint(value, == ,0x7fffffffffffffff);
+    g_assert(gutil_parse_uint64("0x100000000", 0, &value));
+    g_assert_cmpuint(value, == ,0x100000000);
+    g_assert(gutil_parse_uint64("0xffffffffffffffff", 0, &value));
+    g_assert_cmpuint(value, == ,0xffffffffffffffff);
+#ifndef _WIN32
+    g_assert(!gutil_parse_uint64("0x10000000000000000", 0, &value));
+#endif
 }
 
 /*==========================================================================*
@@ -366,6 +576,66 @@ test_data_from_string(
 
     g_assert(gutil_data_from_string(&data, "123") == &data);
     g_assert(gutil_data_equal(&data_123, &data));
+}
+
+/*==========================================================================*
+ * data_copy
+ *==========================================================================*/
+
+static
+void
+test_data_copy(
+    void)
+{
+    static const guint8 src_data[] = { '1', '2', '3' };
+    GUtilData* data;
+    GUtilData src;
+
+    TEST_INIT_DATA(src, src_data);
+
+    g_assert(!gutil_data_copy(NULL));
+    data = gutil_data_copy(&src);
+    g_assert(gutil_data_equal(data, &src));
+    g_free(data);
+
+    /* This is wrong but when pointer is NULL, the length is ignored */
+    data = gutil_data_new(NULL, 1000);
+    g_assert(!data->bytes);
+    g_assert(!data->size);
+    g_free(data);
+
+    data = gutil_data_new(TEST_ARRAY_AND_SIZE(src_data));
+    g_assert(gutil_data_equal(data, &src));
+    g_free(data);
+}
+
+/*==========================================================================*
+ * data_copy_as_variant
+ *==========================================================================*/
+
+static
+void
+test_data_copy_as_variant(
+    void)
+{
+    static const guint8 bytes[] = { '1', '2', '3' };
+    GVariant* var;
+    GUtilData data;
+
+    g_assert(!gutil_data_copy_as_variant(NULL));
+
+    memset(&data, 0, sizeof(data));
+    var = gutil_data_copy_as_variant(&data);
+    g_assert(var);
+    g_assert_cmpuint(g_variant_get_size(var), == ,0);
+    g_variant_unref(g_variant_ref_sink(var));
+
+    TEST_INIT_DATA(data, bytes);
+    var = gutil_data_copy_as_variant(&data);
+    g_assert(var);
+    g_assert_cmpuint(data.size, == ,g_variant_get_size(var));
+    g_assert(!memcmp(data.bytes, g_variant_get_data(var), data.size));
+    g_variant_unref(g_variant_ref_sink(var));
 }
 
 /*==========================================================================*
@@ -543,6 +813,23 @@ test_ptrv_length(
 }
 
 /*==========================================================================*
+ * ptrv_is_empty
+ *==========================================================================*/
+
+static
+void
+test_ptrv_is_empty(
+    void)
+{
+    static const gconstpointer ptrv0[] = { NULL };
+    static const gconstpointer ptrv1[] = { ptrv0, NULL };
+
+    g_assert(gutil_ptrv_is_empty(NULL));
+    g_assert(gutil_ptrv_is_empty(ptrv0));
+    g_assert(!gutil_ptrv_is_empty(ptrv1));
+}
+
+/*==========================================================================*
  * ptrv_free
  *==========================================================================*/
 
@@ -579,6 +866,20 @@ test_memdup(
     g_assert(!gutil_memdup(data, 0));
     g_assert(!gutil_memdup(NULL, 0));
     g_assert(!gutil_memdup(NULL, 1));
+}
+
+/*==========================================================================*
+ * strlen
+ *==========================================================================*/
+
+static
+void
+test_strlen(
+    void)
+{
+    g_assert(!gutil_strlen0(NULL));
+    g_assert_cmpuint(gutil_strlen0(""), == ,0);
+    g_assert_cmpuint(gutil_strlen0("1"), == ,1);
 }
 
 /*==========================================================================*
@@ -658,6 +959,70 @@ test_range_prefix(
 }
 
 /*==========================================================================*
+ * bytes_prefix
+ *==========================================================================*/
+
+static
+void
+test_bytes_prefix(
+    void)
+{
+    static const guint8 data[] = { 0x01, 0x02, 0x03, 0x04 };
+    static const guint8 prefix[] = { 0x01, 0x02 };
+    static const guint8 not_prefix[] = { 0x03, 0x04 };
+    static const guint8 too_long[] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
+    GBytes* empty = g_bytes_new_static(NULL, 0);
+    GBytes* bytes = g_bytes_new_static(TEST_ARRAY_AND_SIZE(data));
+
+    /* NULL GBytes doesn't have any prefix, even an empty one */
+    g_assert(!gutil_bytes_has_prefix(NULL, NULL, 0));
+
+    /* Anything has an empty prefix */
+    g_assert(gutil_bytes_has_prefix(empty, NULL, 0));
+    g_assert(gutil_bytes_has_prefix(bytes, prefix, 0));
+
+    /* Test the matching */
+    g_assert(gutil_bytes_has_prefix(bytes, TEST_ARRAY_AND_SIZE(prefix)));
+    g_assert(!gutil_bytes_has_prefix(bytes, TEST_ARRAY_AND_SIZE(not_prefix)));
+    g_assert(!gutil_bytes_has_prefix(bytes, TEST_ARRAY_AND_SIZE(too_long)));
+
+    g_bytes_unref(empty);
+    g_bytes_unref(bytes);
+}
+
+/*==========================================================================*
+ * bytes_suffix
+ *==========================================================================*/
+
+static
+void
+test_bytes_suffix(
+    void)
+{
+    static const guint8 data[] = { 0x01, 0x02, 0x03, 0x04 };
+    static const guint8 suffix[] = { 0x03, 0x04 };
+    static const guint8 not_suffix[] = { 0x02, 0x03 };
+    static const guint8 too_long[] = { 0x01, 0x02, 0x03, 0x04, 0x05 };
+    GBytes* empty = g_bytes_new_static(NULL, 0);
+    GBytes* bytes = g_bytes_new_static(TEST_ARRAY_AND_SIZE(data));
+
+    /* NULL GBytes doesn't have any suffix, even an empty one */
+    g_assert(!gutil_bytes_has_suffix(NULL, NULL, 0));
+
+    /* Anything has an empty suffix */
+    g_assert(gutil_bytes_has_suffix(empty, NULL, 0));
+    g_assert(gutil_bytes_has_suffix(bytes, suffix, 0));
+
+    /* Test the matching */
+    g_assert(gutil_bytes_has_suffix(bytes, TEST_ARRAY_AND_SIZE(suffix)));
+    g_assert(!gutil_bytes_has_suffix(bytes, TEST_ARRAY_AND_SIZE(not_suffix)));
+    g_assert(!gutil_bytes_has_suffix(bytes, TEST_ARRAY_AND_SIZE(too_long)));
+
+    g_bytes_unref(empty);
+    g_bytes_unref(bytes);
+}
+
+/*==========================================================================*
  * Common
  *==========================================================================*/
 
@@ -674,24 +1039,37 @@ int main(int argc, char* argv[])
     gutil_log_default.level = g_test_verbose() ?
         GLOG_LEVEL_VERBOSE : GLOG_LEVEL_NONE;
 
+    g_test_add_func(TEST_("version"), test_version);
     g_test_add_func(TEST_("disconnect"), test_disconnect);
+    g_test_add_func(TEST_("ref"), test_ref);
+    g_test_add_func(TEST_("source"), test_source);
+    g_test_add_func(TEST_("unref"), test_unref);
     g_test_add_func(TEST_("hex2bin"), test_hex2bin);
+    g_test_add_func(TEST_("bin2hex"), test_bin2hex);
     g_test_add_func(TEST_("hexdump"), test_hexdump);
     g_test_add_func(TEST_("parse_int"), test_parse_int);
     g_test_add_func(TEST_("parse_uint"), test_parse_uint);
+    g_test_add_func(TEST_("parse_int64"), test_parse_int64);
+    g_test_add_func(TEST_("parse_uint64"), test_parse_uint64);
     g_test_add_func(TEST_("data_equal"), test_data_equal);
     g_test_add_func(TEST_("data_prefix"), test_data_prefix);
     g_test_add_func(TEST_("data_suffix"), test_data_suffix);
     g_test_add_func(TEST_("data_from_bytes"), test_data_from_bytes);
     g_test_add_func(TEST_("data_from_string"), test_data_from_string);
+    g_test_add_func(TEST_("data_copy"), test_data_copy);
+    g_test_add_func(TEST_("data_copy_as_variant"), test_data_copy_as_variant);
     g_test_add_func(TEST_("bytes_concat"), test_bytes_concat);
     g_test_add_func(TEST_("bytes_xor"), test_bytes_xor);
     g_test_add_func(TEST_("bytes_equal"), test_bytes_equal);
-    g_test_add_func(TEST_("ptrv_lenght"), test_ptrv_length);
+    g_test_add_func(TEST_("ptrv_length"), test_ptrv_length);
+    g_test_add_func(TEST_("ptrv_is_empty"), test_ptrv_is_empty);
     g_test_add_func(TEST_("ptrv_free"), test_ptrv_free);
     g_test_add_func(TEST_("memdup"), test_memdup);
+    g_test_add_func(TEST_("strlen"), test_strlen);
     g_test_add_func(TEST_("range_init"), test_range_init);
     g_test_add_func(TEST_("range_prefix"), test_range_prefix);
+    g_test_add_func(TEST_("bytes_prefix"), test_bytes_prefix);
+    g_test_add_func(TEST_("bytes_suffix"), test_bytes_suffix);
     test_init(&test_opt, argc, argv);
     return g_test_run();
 }

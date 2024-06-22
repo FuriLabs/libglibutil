@@ -1,8 +1,8 @@
 /*
- * Copyright (C) 2016-2021 Jolla Ltd.
- * Copyright (C) 2016-2021 Slava Monich <slava.monich@jolla.com>
+ * Copyright (C) 2016-2024 Slava Monich <slava@monich.com>
+ * Copyright (C) 2016-2022 Jolla Ltd.
  *
- * You may use this file under the terms of BSD license as follows:
+ * You may use this file under the terms of the BSD license as follows:
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -35,7 +35,12 @@
 #include <glib-object.h>
 
 #include <ctype.h>
+#include <errno.h>
 #include <limits.h>
+
+#if __GNUC__ >= 4
+#pragma GCC visibility push(default)
+#endif
 
 void
 gutil_disconnect_handlers(
@@ -53,6 +58,53 @@ gutil_disconnect_handlers(
             }
         }
     }
+}
+
+void*
+gutil_object_ref(
+    void* object) /* Since 1.0.71 */
+{
+    /* Just a NULL-tolerant version of g_object_ref() */
+    if (object) {
+        g_object_ref(object);
+    }
+    return object;
+}
+
+void
+gutil_object_unref(
+    void* object) /* Since 1.0.71 */
+{
+    /* Just a NULL-tolerant version of g_object_unref */
+    if (object) {
+        g_object_unref(object);
+    }
+}
+
+gboolean
+gutil_source_remove(
+    guint id) /* Since 1.0.78 */
+{
+    /* Zero-tolerant version of g_source_remove */
+    if (id) {
+        g_source_remove(id);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+gboolean
+gutil_source_clear(
+    guint* id) /* Since 1.0.78 */
+{
+    /* Yet another zero-tolerant version of g_source_remove */
+    if (id && *id) {
+        g_source_remove(*id);
+        *id = 0;
+        return TRUE;
+    }
+    return FALSE;
+
 }
 
 void*
@@ -87,6 +139,39 @@ gutil_hex2bin(
         return data;
     }
     return NULL;
+}
+
+char*
+gutil_bin2hex(
+    const void* data,
+    gsize len,
+    gboolean upper_case) /* Since 1.0.71 */
+{
+    static const char hex[] = "0123456789abcdef";
+    static const char HEX[] = "0123456789ABCDEF";
+    const char* map = upper_case ? HEX : hex;
+    const guchar* ptr = data;
+    const guchar* end = ptr + len;
+    char* out = g_malloc(2 * len + 1);
+    char* dest = out;
+
+    while (ptr < end) {
+        const guchar b = *ptr++;
+
+        *dest++ = map[(b >> 4) & 0xf];
+        *dest++ = map[b & 0xf];
+    }
+
+    *dest = 0;
+    return out;
+}
+
+char*
+gutil_data2hex(
+    const GUtilData* data,
+    gboolean upper_case) /* Since 1.0.71 */
+{
+    return data ? gutil_bin2hex(data->bytes, data->size, upper_case) : NULL;
 }
 
 GBytes*
@@ -135,6 +220,7 @@ gutil_hexdump(
         }
         if (i < len) {
             const guchar b = bytes[i];
+
             *ptr++ = hex[(b >> 4) & 0xf];
             *ptr++ = hex[b & 0xf];
         } else {
@@ -168,7 +254,8 @@ gutil_strstrip(
 
     if (g_ascii_isspace(str[0]) || g_ascii_isspace(str[len - 1])) {
         /* Need to modify the original string */
-        return (*tmp = g_strstrip(gutil_memdup(str, len + 1)));
+        *tmp = gutil_memdup(str, len + 1);
+        return g_strstrip(*tmp);
     } else {
         /* The original string is fine as is */
         return str;
@@ -181,21 +268,15 @@ gutil_parse_int(
     int base,
     int* value) /* Since 1.0.30 */
 {
-    gboolean ok = FALSE;
+    gint64 ll;
 
-    if (str && str[0]) {
-        char* tmp = NULL;
-        char* end = NULL;
-        const char* stripped = gutil_strstrip(str, &tmp);
-        const gint64 ll = g_ascii_strtoll(stripped, &end, base);
-
-        ok = !*end && ll >= INT_MIN && ll <= INT_MAX;
-        if (ok && value) {
+    if (gutil_parse_int64(str, base, &ll) && ll >= INT_MIN && ll <= INT_MAX) {
+        if (value) {
             *value = (int)ll;
         }
-        g_free(tmp);
+        return TRUE;
     }
-    return ok;
+    return FALSE;
 }
 
 gboolean
@@ -204,17 +285,76 @@ gutil_parse_uint(
     int base,
     unsigned int* value) /* Since 1.0.53 */
 {
+    guint64 ull;
+
+    if (gutil_parse_uint64(str, base, &ull) && ull <= UINT_MAX) {
+        if (value) {
+            *value = (unsigned int)ull;
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+gboolean
+gutil_parse_int64(
+    const char* str,
+    int base,
+    gint64* value) /* Since 1.0.56 */
+{
     gboolean ok = FALSE;
 
-    if (str && str[0]) {
+    if (str && *str) {
         char* tmp = NULL;
         char* end = NULL;
         const char* stripped = gutil_strstrip(str, &tmp);
-        const guint64 ull = g_ascii_strtoull(stripped, &end, base);
+        gint64 ll;
 
-        ok = !*end && ull <= UINT_MAX;
-        if (ok && value) {
-            *value = (unsigned int)ull;
+        errno = 0;
+        ll = g_ascii_strtoll(stripped, &end, base);
+        if (end && !*end &&
+            !((ll == G_MAXINT64 || ll == G_MININT64) && errno == ERANGE) &&
+            !(ll == 0 && errno == EINVAL)) {
+            if (value) {
+                *value = ll;
+            }
+            ok = TRUE;
+        }
+        g_free(tmp);
+    }
+    return ok;
+}
+
+gboolean
+gutil_parse_uint64(
+    const char* str,
+    int base,
+    guint64* value) /* Since 1.0.56 */
+{
+    gboolean ok = FALSE;
+
+    /*
+     * Sorry, we don't accept minus as a part of an unsigned number
+     * (unlike strtoul)
+     */
+    if (str && *str && *str != '-') {
+        char* tmp = NULL;
+        const char* stripped = gutil_strstrip(str, &tmp);
+
+        if (*stripped != '-') {
+            char* end = NULL;
+            guint64 ull;
+
+            errno = 0;
+            ull = g_ascii_strtoull(stripped, &end, base);
+            if (end && !*end &&
+                !(ull == G_MAXUINT64 && errno == ERANGE) &&
+                !(ull == 0 && errno == EINVAL)) {
+                if (value) {
+                    *value = ull;
+                }
+                ok = TRUE;
+            }
         }
         g_free(tmp);
     }
@@ -240,7 +380,7 @@ gutil_data_equal(
 const GUtilData*
 gutil_data_from_string(
     GUtilData* data,
-    const char* str)
+    const char* str) /* Since 1.0.31 */
 {
     if (data) {
         if (str) {
@@ -257,7 +397,7 @@ gutil_data_from_string(
 const GUtilData*
 gutil_data_from_bytes(
     GUtilData* data,
-    GBytes* bytes)
+    GBytes* bytes) /* Since 1.0.31 */
 {
     if (data) {
         if (bytes) {
@@ -268,6 +408,56 @@ gutil_data_from_bytes(
         }
     }
     return data;
+}
+
+GUtilData*
+gutil_data_new(
+    const void* bytes,
+    guint len) /* Since 1.0.72 */
+{
+    /*
+     * The whole thing is allocated from a single memory block and
+     * has to be freed with a single g_free()
+     */
+    const gsize total = len + sizeof(GUtilData);
+    GUtilData* data = g_malloc(total);
+
+    if (bytes) {
+        void* contents = (void*)(data + 1);
+
+        data->bytes = contents;
+        data->size = len;
+        memcpy(contents, bytes, len);
+    } else {
+        memset(data, 0, sizeof(*data));
+    }
+    return data;
+}
+
+GUtilData*
+gutil_data_copy(
+    const GUtilData* data) /* Since 1.0.72 */
+{
+    /*
+     * The whole thing is allocated from a single memory block and
+     * has to be freed with a single g_free()
+     */
+    return data ? gutil_data_new(data->bytes, data->size) : NULL;
+}
+
+GVariant*
+gutil_data_copy_as_variant(
+    const GUtilData* data) /* Since 1.0.74 */
+{
+    /*
+     * Return a floating reference to a new array GVariant instance
+     * or NULL if the input is NULL.
+     */
+    return !data ? NULL : data->size ?
+        g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE,
+             data->bytes, data->size, 1) :
+        g_variant_new_from_data(G_VARIANT_TYPE_BYTESTRING,
+             NULL, 0, TRUE, NULL, NULL);
 }
 
 gboolean
@@ -457,12 +647,58 @@ gutil_bytes_equal_data(
     }
 }
 
+gboolean
+gutil_bytes_has_prefix(
+    GBytes* bytes,
+    const void* data,
+    gsize size) /* Since 1.0.63 */
+{
+    if (!bytes) {
+        /* NULL GBytes has neither prefix nor suffix, even an empty one */
+        return FALSE;
+    } else if (!size) {
+        /*
+         * That's largely a philosophical question - can anything have
+         * an empty prefix? Let's assume that the answer is yes. And
+         * then if anything can have such a prefix, everything has it.
+         * Right? Except for NULL GBytes which doesn't have anything
+         * as said earlier.
+         */
+        return TRUE;
+    } else {
+        gsize bytes_size;
+        const guint8* contents = g_bytes_get_data(bytes, &bytes_size);
+
+        return (bytes_size >= size) && !memcmp(contents, data, size);
+    }
+}
+
+gboolean
+gutil_bytes_has_suffix(
+    GBytes* bytes,
+    const void* data,
+    gsize size) /* Since 1.0.63 */
+{
+    /* Treat an empty suffix the same way as an empty prefix */
+    if (!bytes) {
+        return FALSE;
+    } else if (!size) {
+        return TRUE;
+    } else {
+        gsize bytes_size;
+        const guint8* contents = g_bytes_get_data(bytes, &bytes_size);
+
+        return (bytes_size >= size) &&
+            !memcmp(contents + (bytes_size - size), data, size);
+    }
+}
+
 /* Calculates the length of NULL-terminated array of pointers */
 gsize
 gutil_ptrv_length(
     const void* ptrv) /* Since 1.0.50 */
 {
-    if (G_LIKELY(ptrv)) {
+    if (ptrv) {
         gsize len = 0;
         const gconstpointer* ptr = ptrv;
 
@@ -471,6 +707,13 @@ gutil_ptrv_length(
     } else {
         return 0;
     }
+}
+
+gboolean
+gutil_ptrv_is_empty(
+    const void* ptrv) /* Since 1.0.71 */
+{
+    return !ptrv || !((gconstpointer*)ptrv)[0];
 }
 
 /* Frees NULL-terminated array of pointers and whatever they're pointing to. */
@@ -500,6 +743,14 @@ gutil_memdup(
     } else {
         return NULL;
     }
+}
+
+/* NULL-tolerant version of strlen */
+gsize
+gutil_strlen0(
+    const char* str) /* Since 1.0.62 */
+{
+    return str ? strlen(str) : 0;
 }
 
 gsize
